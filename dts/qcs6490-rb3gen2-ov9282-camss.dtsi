@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * OV9282 on upstream qcom-camss (V4L2) for QCS6490 RB3 Gen2.
+ *
+ * #include this at the END of the board .dts that the RB3 actually boots.
+ * Modeled on upstream qcs6490-rb3gen2-vision-mezzanine.dtso (IMX577).
+ *
+ * Every line marked TODO must come from the schematic, or from the
+ * downstream (CamX) camera DT for the same module:
+ *   downstream csiphy-sd-index = <N>     -> &camss port@N
+ *   downstream cci-device / cci-master   -> &cci<dev>_i2c<master>
+ *   sensor XML slave address 0xC0 (8bit) -> reg = <0x60> (7bit)
+ *   downstream MCLK clock / gpio         -> CAM_CC_MCLKn_CLK, gpio(64 + n)
+ *   downstream reset gpio                -> reset-gpios
+ *   cam_vio / cam_vana / cam_vdig        -> dovdd / avdd / dvdd -supply
+ */
+
+#include <dt-bindings/clock/qcom,camcc-sc7280.h>
+#include <dt-bindings/gpio/gpio.h>
+
+&camss {
+	vdda-phy-supply = <&vreg_l10c_0p88>;
+	vdda-pll-supply = <&vreg_l6b_1p2>;
+
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		/* TODO: port index = CSIPHY id the sensor is wired to */
+		port@2 {
+			reg = <2>;
+
+			ov9282_csiphy_ep: endpoint {
+				clock-lanes = <7>;
+				data-lanes = <0 1>;
+				remote-endpoint = <&ov9282_ep>;
+			};
+		};
+	};
+};
+
+/* TODO: CCI controller (cci0/cci1) the sensor I2C is wired to */
+&cci1 {
+	status = "okay";
+};
+
+/* TODO: CCI master (i2c0/i2c1) */
+&cci1_i2c0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	/* TODO: 7-bit address; 0x60 or 0x70 depending on SID pin */
+	camera@60 {
+		compatible = "ovti,ov9282";
+		reg = <0x60>;
+
+		/*
+		 * ov9282_power_on() drives this line to logical 1 to run the
+		 * sensor (XCLR high). Keep ACTIVE_HIGH unless the board inverts it.
+		 */
+		reset-gpios = <&tlmm 0 GPIO_ACTIVE_HIGH>;	/* TODO: gpio number */
+		pinctrl-names = "default", "suspend";
+		pinctrl-0 = <&ov9282_mclk_default>;
+		pinctrl-1 = <&ov9282_mclk_suspend>;
+
+		/* TODO: MCLK index; the driver only accepts exactly 24 MHz */
+		clocks = <&camcc CAM_CC_MCLK2_CLK>;
+		assigned-clocks = <&camcc CAM_CC_MCLK2_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		/* TODO: real rails (regulator-fixed nodes if they are GPIO-switched) */
+		dovdd-supply = <&vreg_l18b_1p8>;
+		avdd-supply = <&vph_pwr>;
+		dvdd-supply = <&vph_pwr>;
+
+		port {
+			ov9282_ep: endpoint {
+				/* the driver requires exactly 2 lanes and 400 MHz */
+				data-lanes = <1 2>;
+				link-frequencies = /bits/ 64 <400000000>;
+				remote-endpoint = <&ov9282_csiphy_ep>;
+			};
+		};
+	};
+};
+
+&tlmm {
+	/* TODO: MCLKn pin = gpio(64 + n) on SC7280; check the schematic */
+	ov9282_mclk_default: ov9282-mclk-default-state {
+		pins = "gpio66";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	ov9282_mclk_suspend: ov9282-mclk-suspend-state {
+		pins = "gpio66";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+};
